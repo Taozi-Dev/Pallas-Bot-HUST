@@ -69,11 +69,11 @@ async def change_name():
                     'card': random.choice(['帕拉斯', '牛牛', '牛牛喝酒', '牛牛干杯', '牛牛继续喝'])
                 })
 
-            # 戳一戳
-            await bot.call_api('send_group_msg', **{
-                'message': Message('[CQ:poke,qq={}]'.format(target_user_id)),
-                'group_id': group_id
-            })
+            # # 戳一戳
+            # await bot.call_api('send_group_msg', **{
+            #     'message': Message('[CQ:poke,qq={}]'.format(target_user_id)),
+            #     'group_id': group_id
+            # })
 
             config.update_taken_name(target_user_id)
 

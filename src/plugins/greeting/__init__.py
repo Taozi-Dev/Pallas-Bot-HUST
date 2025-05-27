@@ -98,20 +98,7 @@ all_notice = on_notice(
 
 @all_notice.handle()
 async def handle_first_receive(bot: Bot, event: Event, state: T_State):
-    if event.notice_type == 'notify' and event.sub_type == 'poke' and event.target_id == event.self_id:
-        config = BotConfig(event.self_id, event.group_id)
-        if not config.is_cooldown('poke'):
-            return
-        config.refresh_cooldown('poke')
-
-        delay = random.randint(1, 3)
-        await asyncio.sleep(delay)
-        config.refresh_cooldown('poke')
-
-        poke_msg: str = '[CQ:poke,qq={}]'.format(event.user_id)
-        await all_notice.finish(Message(poke_msg))
-
-    elif event.notice_type == 'group_increase':
+    if event.notice_type == 'group_increase':
         if event.user_id == event.self_id:
             msg = '我是来自米诺斯的祭司帕拉斯，会在罗德岛休息一段时间......虽然这么说，我渴望以美酒和戏剧被招待，更渴望走向战场。'
         elif await is_bot_admin(event.self_id, event.group_id):

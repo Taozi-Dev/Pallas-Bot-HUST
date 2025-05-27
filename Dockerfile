@@ -1,12 +1,8 @@
-FROM python:3.9 as requirements-stage
+FROM sunpeek/poetry:py3.9-slim as requirements-stage
 
 WORKDIR /tmp
 
 COPY ./pyproject.toml ./poetry.lock* /tmp/
-
-RUN curl -sSL https://install.python-poetry.org -o install-poetry.py
-
-RUN python install-poetry.py --yes
 
 ENV PATH="${PATH}:/root/.local/bin"
 
@@ -16,9 +12,9 @@ FROM tiangolo/uvicorn-gunicorn-fastapi:python3.9
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y ffmpeg
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources &&  apt-get update && apt-get install -y ffmpeg
 
-ADD https://github.com/ufoscout/docker-compose-wait/releases/download/2.9.0/wait /app/wait
+RUN curl -o /app/wait https://github.com/ufoscout/docker-compose-wait/releases/download/2.9.0/wait 
 
 RUN chmod +x /app/wait
 

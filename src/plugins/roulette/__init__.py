@@ -196,12 +196,13 @@ async def shot(self_id: int, user_id: int, group_id: int) -> Optional[Awaitable[
 
     elif mode == 1:  # 禁言
         async def group_ban():
+            ban_duration_list = [random.randint(180, 1440), random.randint(60, 180), random.randint(30, 60), random.randint(10, 30)]
+            ban_duration = random.choices(ban_duration_list, weights = [2, 8, 50, 40])[0]
             await get_bot(str(self_id)).call_api('set_group_ban', **{
                 'user_id': user_id,
                 'group_id': group_id,
-                'duration': random.randint(5, 20) * 60
+                'duration': ban_duration * 60
             })
-
         return group_ban
 
 
