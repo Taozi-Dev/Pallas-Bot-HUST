@@ -182,7 +182,7 @@ async def shot(self_id: int, user_id: int, group_id: int) -> Optional[Awaitable[
     })
     user_role = user_info['role']
 
-    if user_role ==
+    if user_role == "owner":
         return None
     elif user_role == "admin" and self_role != "owner":
         return None
