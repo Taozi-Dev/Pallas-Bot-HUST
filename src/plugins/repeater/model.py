@@ -550,13 +550,16 @@ class Chat:
             Chat._sync(cur_time)
 
     @ staticmethod
-    def _sync(cur_time: int = time.time()):
+    def _sync(cur_time: Optional[int] = None):
         '''
         持久化
         '''
 
+        if cur_time is None:
+            cur_time = int(time.time())
+
         with Chat._message_lock:
-            save_list = [msg
+            save_list = [{k: v for k, v in msg.items() if k != '_id'}
                          for group_msgs in Chat._message_dict.values()
                          for msg in group_msgs
                          if msg['time'] > Chat._late_save_time]
