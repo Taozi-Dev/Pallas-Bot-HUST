@@ -75,6 +75,11 @@ class PluginConfig(BaseModel, extra=Extra.ignore):
     tts_vocoder: str = 'pwgan_aishell3'
     # chat 模型的strategy
     chat_strategy: str = ''
+    # OpenAI-compatible LLM settings
+    llm_api_key: str = ''
+    llm_base_url: str = 'https://api.openai.com/v1'
+    llm_model: str = ''
+    llm_timeout: int = 60
 
 
 try:
