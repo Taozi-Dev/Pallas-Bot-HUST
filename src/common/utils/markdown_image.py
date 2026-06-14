@@ -1,7 +1,8 @@
 import io
+import os
 import re
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 CANVAS_WIDTH = 960
 PADDING = 48
@@ -16,13 +17,22 @@ RULE = '#ded8cc'
 
 _FONT_CANDIDATES = [
     'C:/Windows/Fonts/msyh.ttc',
+    'C:/Windows/Fonts/msyh.ttf',
+    'C:/Windows/Fonts/msyhbd.ttc',
     'C:/Windows/Fonts/simhei.ttf',
     'C:/Windows/Fonts/simsun.ttc',
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',
+    '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',
     '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
     '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+    '/System/Library/Fonts/PingFang.ttc',
+    '/System/Library/Fonts/STHeiti Light.ttc',
 ]
+
+_GLYPH_MASK_CACHE: Dict[Tuple[int, str], Optional[Tuple[Tuple[int, int], bytes]]] = {}
+_MISSING_GLYPH_CACHE: Dict[int, Optional[Tuple[Tuple[int, int], bytes]]] = {}
 
 
 def render_markdown_to_png(markdown: str) -> bytes:
@@ -158,15 +168,66 @@ def _font_for_line(fonts, kind: str):
 
 
 def _load_font(image_font, size: int):
-    for candidate in _FONT_CANDIDATES:
+    for candidate in _font_candidates():
         if Path(candidate).exists():
-            return image_font.truetype(candidate, size=size)
-    return image_font.load_default()
+            font = image_font.truetype(candidate, size=size)
+            if _font_supports_cjk(font):
+                return font
+    raise RuntimeError('No CJK-capable font found for summary image rendering')
+
+
+def _font_candidates() -> Iterable[str]:
+    configured = os.getenv('PALLAS_SUMMARY_FONT')
+    if configured:
+        yield configured
+    yield from _FONT_CANDIDATES
+
+
+def _font_supports_cjk(font) -> bool:
+    left = _glyph_mask(font, '测')
+    right = _glyph_mask(font, '聊')
+    return left is not None and right is not None and left != right
+
+
+def _glyph_mask(font, char: str) -> Optional[Tuple[Tuple[int, int], bytes]]:
+    key = (id(font), char)
+    if key in _GLYPH_MASK_CACHE:
+        return _GLYPH_MASK_CACHE[key]
+
+    try:
+        mask = font.getmask(char)
+        data = mask.tobytes() if hasattr(mask, 'tobytes') else bytes(mask)
+        result = (mask.size, data)
+    except Exception:
+        result = None
+
+    _GLYPH_MASK_CACHE[key] = result
+    return result
+
+
+def _missing_glyph_mask(font) -> Optional[Tuple[Tuple[int, int], bytes]]:
+    key = id(font)
+    if key not in _MISSING_GLYPH_CACHE:
+        _MISSING_GLYPH_CACHE[key] = _glyph_mask(font, '\U0010ffff')
+    return _MISSING_GLYPH_CACHE[key]
 
 
 def _safe_text(text: str, draw, font) -> str:
+    text = _drop_missing_glyphs(text, font)
     try:
         draw.textbbox((0, 0), text, font=font)
     except UnicodeEncodeError:
         return text.encode('latin-1', 'replace').decode('latin-1')
     return text
+
+
+def _drop_missing_glyphs(text: str, font) -> str:
+    missing = _missing_glyph_mask(font)
+    if missing is None:
+        return text
+
+    chars = []
+    for char in text:
+        if char.isspace() or _glyph_mask(font, char) != missing:
+            chars.append(char)
+    return ''.join(chars)

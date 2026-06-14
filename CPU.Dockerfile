@@ -17,7 +17,7 @@ FROM tiangolo/uvicorn-gunicorn-fastapi:python3.9
 WORKDIR /app
 
 RUN apt-get update && \
-    apt-get install -y ffmpeg portaudio19-dev python3-all-dev && \
+    apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk portaudio19-dev python3-all-dev && \
     rm -rf /var/lib/apt/lists/*
 
 ADD https://github.com/ufoscout/docker-compose-wait/releases/download/2.9.0/wait /app/wait
