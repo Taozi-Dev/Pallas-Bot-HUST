@@ -17,7 +17,7 @@ FROM tiangolo/uvicorn-gunicorn-fastapi:python3.9
 WORKDIR /app
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg portaudio19-dev python3-all-dev && \
+    apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk portaudio19-dev python3-all-dev && \
     rm -rf /var/lib/apt/lists/*
 
 RUN curl -s http://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/ | grep 'libssl1.1_1.1.1f-1ubuntu.*_amd64\.deb' | sort | head -n 1 | sed 's/.*\(libssl1\.1_1\.1\.1f-1ubuntu.*_amd64\.deb\).*/\1/' | xargs -I {} wget http://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/{} -O libssl_latest.deb && \

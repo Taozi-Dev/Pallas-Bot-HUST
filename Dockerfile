@@ -4,6 +4,10 @@ WORKDIR /app
 
 COPY ./ /app/
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends fonts-noto-cjk && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN curl -o /app/wait https://github.com/ufoscout/docker-compose-wait/releases/download/2.9.0/wait 
 
 RUN chmod +x /app/wait
