@@ -6,9 +6,9 @@ from src.common.llm.summary import (
     MAX_WINDOW_SECONDS,
     SummaryRateLimiter,
     format_chat_records,
-    parse_summary_window,
     has_summary_keyword,
     parse_summary_intent_result,
+    parse_summary_window,
 )
 
 
@@ -17,7 +17,7 @@ class TestSummaryIntentParser(unittest.TestCase):
         self.assertEqual(60 * 60, parse_summary_window('总结一下'))
 
     def test_detects_summary_keyword(self):
-        self.assertTrue(has_summary_keyword(' 帮我 总结 一下 '))
+        self.assertTrue(has_summary_keyword(' 帮我 总结 一下'))
         self.assertFalse(has_summary_keyword('今天吃什么'))
 
     def test_minutes_window(self):
@@ -83,9 +83,9 @@ class TestFormatChatRecords(unittest.TestCase):
 
         result = format_chat_records(records)
 
-        self.assertLess(result.index('1: first'), result.index('2: second'))
+        self.assertLess(result.index('**1**: first'), result.index('**2**: second'))
 
-    def test_formats_with_nicknames(self):
+    def test_formats_with_bold_nicknames(self):
         records = [
             {
                 'time': 100,
@@ -98,8 +98,31 @@ class TestFormatChatRecords(unittest.TestCase):
 
         result = format_chat_records(records, {1: '小明'})
 
-        self.assertIn('小明: first', result)
+        self.assertIn('**小明**: first', result)
         self.assertNotIn('1: first', result)
+
+    def test_escapes_markdown_in_nickname(self):
+        result = format_chat_records([{
+            'time': 100,
+            'user_id': 1,
+            'is_plain_text': True,
+            'plain_text': 'hello',
+            'raw_message': 'hello',
+        }], {1: 'a*b'})
+
+        self.assertIn(r'**a\*b**: hello', result)
+
+    def test_reply_message_keeps_plain_text(self):
+        result = format_chat_records([{
+            'time': 100,
+            'user_id': 1,
+            'is_plain_text': False,
+            'plain_text': 'reply text',
+            'raw_message': '[CQ:reply,id=123]reply text',
+        }])
+
+        self.assertIn('**1**: reply text', result)
+        self.assertNotIn('[CQ:reply', result)
 
     def test_skips_empty_text(self):
         result = format_chat_records([{

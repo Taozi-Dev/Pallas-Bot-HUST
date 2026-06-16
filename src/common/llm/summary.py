@@ -270,7 +270,7 @@ def format_chat_records(records: Iterable[Dict], user_names: Optional[Dict[int, 
 
         timestamp = time.strftime('%H:%M', time.localtime(record.get('time', 0)))
         user_id = record.get('user_id', 'unknown')
-        speaker = _speaker_name(user_id, user_names)
+        speaker = _bold_speaker_name(_speaker_name(user_id, user_names))
         lines.append(f'{timestamp} {speaker}: {text}')
 
     return '\n'.join(lines)
@@ -335,7 +335,7 @@ class SummaryRateLimiter:
 
 def _record_text(record: Dict) -> str:
     plain_text = (record.get('plain_text') or '').strip()
-    if record.get('is_plain_text'):
+    if plain_text:
         return plain_text
 
     raw_message = (record.get('raw_message') or '').strip()
@@ -351,6 +351,11 @@ def _speaker_name(user_id: Any, user_names: Optional[Dict[int, str]]) -> str:
         if name:
             return _clean_speaker_name(name)
     return _clean_speaker_name(str(user_id or 'unknown'))
+
+
+def _bold_speaker_name(name: str) -> str:
+    escaped = str(name).replace('\\', '\\\\').replace('*', r'\*')
+    return f'**{escaped}**'
 
 
 def _clean_speaker_name(name: str) -> str:
