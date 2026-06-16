@@ -9,6 +9,18 @@ from nonebot.typing import T_State
 
 from src.common.config import plugin_config
 from src.common.llm import LLMClient, LLMConfigError, LLMError
+from src.common.llm.skill import (
+    MIN_SKILL_RECORDS,
+    NO_SKILL_TARGET_MESSAGE,
+    SKILL_INTENT_FAILED_MESSAGE,
+    SKILL_RECORDS_NOT_ENOUGH_MESSAGE,
+    build_skill_generation_messages,
+    build_skill_intent_messages,
+    fetch_user_skill_records,
+    format_skill_records,
+    has_skill_generation_keywords,
+    parse_skill_intent_result,
+)
 from src.common.utils.markdown_image import render_markdown_to_png
 from src.plugins.repeater.model import Chat
 
@@ -51,6 +63,23 @@ async def is_summary_request(bot: Bot, event: GroupMessageEvent, state: T_State)
 
 summary_msg = on_message(
     rule=to_me() & Rule(is_summary_request),
+    priority=12,
+    block=True,
+    permission=permission.GROUP,
+)
+
+
+async def is_skill_request(bot: Bot, event: GroupMessageEvent, state: T_State) -> bool:
+    text = event.get_plaintext()
+    if not has_skill_generation_keywords(text):
+        return False
+
+    state['skill_request_text'] = text
+    return True
+
+
+skill_msg = on_message(
+    rule=to_me() & Rule(is_skill_request),
     priority=12,
     block=True,
     permission=permission.GROUP,
@@ -121,6 +150,68 @@ async def _(bot: Bot, event: GroupMessageEvent, state: T_State):
     await summary_msg.finish(MessageSegment.image(file=image))
 
 
+@skill_msg.handle()
+async def _(bot: Bot, event: GroupMessageEvent, state: T_State):
+    request_text = state['skill_request_text']
+    candidates = await _skill_target_candidates(bot, event)
+    if not candidates:
+        await skill_msg.finish(NO_SKILL_TARGET_MESSAGE)
+
+    try:
+        client = LLMClient.from_config(plugin_config)
+        intent_result = await asyncify(client.chat)(
+            build_skill_intent_messages(request_text, candidates),
+            temperature=0,
+            max_tokens=256,
+        )
+    except LLMConfigError as error:
+        logger.warning(f'LLM skill config error: {error}')
+        await skill_msg.finish(f'LLM 配置不完整：{error}')
+    except LLMError as error:
+        logger.warning(f'LLM skill intent failed: {error}')
+        await skill_msg.finish(f'skill 意图识别失败：{error}')
+
+    candidate_user_ids = [candidate['user_id'] for candidate in candidates]
+    target_user_id = parse_skill_intent_result(intent_result, candidate_user_ids)
+    if target_user_id is None:
+        await skill_msg.finish(SKILL_INTENT_FAILED_MESSAGE)
+
+    target_name = _candidate_name(candidates, target_user_id)
+
+    await asyncify(Chat.sync)()
+
+    collection = _message_collection()
+    records = await asyncify(fetch_user_skill_records)(
+        collection,
+        event.group_id,
+        target_user_id,
+        plugin_config.use_rpc,
+    )
+    if len(records) < MIN_SKILL_RECORDS:
+        await skill_msg.finish(SKILL_RECORDS_NOT_ENOUGH_MESSAGE)
+
+    history = format_skill_records(records)
+    if not history:
+        await skill_msg.finish(SKILL_RECORDS_NOT_ENOUGH_MESSAGE)
+
+    try:
+        skill_markdown = await asyncify(client.chat)(
+            build_skill_generation_messages(target_name, history),
+            temperature=0.8,
+        )
+    except LLMError as error:
+        logger.warning(f'LLM skill generation failed: {error}')
+        await skill_msg.finish(f'skill 生成失败：{error}')
+
+    try:
+        image = await asyncify(render_markdown_to_png)(skill_markdown)
+    except Exception as error:
+        logger.warning(f'Markdown skill render failed: {error}')
+        await skill_msg.finish(skill_markdown)
+
+    await skill_msg.finish(MessageSegment.image(file=image))
+
+
 async def _group_member_names(bot: Bot, group_id: int, records):
     user_ids = sorted({
         record.get('user_id') for record in records
@@ -147,3 +238,54 @@ async def _group_member_names(bot: Bot, group_id: int, records):
         names[user_id] = name
 
     return names
+
+
+async def _skill_target_candidates(bot: Bot, event: GroupMessageEvent):
+    candidate_sources = {}
+    for seg in event.message:
+        if seg.type != 'at':
+            continue
+        user_id = _safe_int(seg.data.get('qq'))
+        if user_id is None or user_id == event.self_id:
+            continue
+        candidate_sources.setdefault(user_id, 'mention')
+
+    candidates = []
+    for user_id, source in candidate_sources.items():
+        candidates.append({
+            'user_id': user_id,
+            'name': await _group_member_name(bot, event.group_id, user_id),
+            'source': source,
+        })
+
+    return candidates
+
+
+async def _group_member_name(bot: Bot, group_id: int, user_id: int) -> str:
+    try:
+        info = await bot.call_api(
+            'get_group_member_info',
+            group_id=group_id,
+            user_id=user_id,
+            no_cache=False,
+        )
+        name = (info.get('card') or info.get('nickname') or '').strip()
+    except Exception as error:
+        logger.warning(f'Failed to fetch group member info: {error}')
+        name = ''
+
+    return name or f'群友{user_id}'
+
+
+def _candidate_name(candidates, target_user_id: int) -> str:
+    for candidate in candidates:
+        if candidate['user_id'] == target_user_id:
+            return candidate.get('name') or f'群友{target_user_id}'
+    return f'群友{target_user_id}'
+
+
+def _safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
