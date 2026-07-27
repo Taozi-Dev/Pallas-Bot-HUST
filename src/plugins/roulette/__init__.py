@@ -8,7 +8,7 @@ from nonebot.adapters import Bot, Event
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, GroupRequestEvent
 from nonebot.adapters.onebot.v11 import MessageSegment, permission, GroupMessageEvent
 from nonebot.permission import Permission
-from src.common.config import BotConfig, GroupConfig
+from src.common.config import BotConfig, GroupConfig, ROULETTE_KICK_ENABLED
 
 import random
 import time
@@ -88,7 +88,11 @@ async def roulette(messagae_handle, bot: Bot, event: GroupMessageEvent, state: T
 
 
 async def is_roulette_type_msg(bot: Bot, event: GroupMessageEvent, state: T_State) -> bool:
-    if event.get_plaintext().strip() in ['牛牛轮盘踢人', '牛牛轮盘禁言', '牛牛踢人轮盘', '牛牛禁言轮盘']:
+    plaintext = event.get_plaintext().strip()
+    roulette_type_commands = ['牛牛轮盘踢人', '牛牛轮盘禁言', '牛牛踢人轮盘', '牛牛禁言轮盘']
+    if plaintext in roulette_type_commands:
+        if '踢人' in plaintext and not ROULETTE_KICK_ENABLED:
+            return False
         if can_roulette_start(event.group_id):
             admin = await am_I_admin(bot, event, state)
             return admin
@@ -163,7 +167,7 @@ async def shot(self_id: int, user_id: int, group_id: int) -> Optional[Awaitable[
     self_role = role_cache[self_id][group_id]
 
     if self_id == user_id:
-        if mode == 0:  # 踢人
+        if mode == 0 and ROULETTE_KICK_ENABLED:  # 踢人
             if self_role == 'owner':  # 牛牛是群主不能退群，不然群就解散了
                 return None
 
@@ -187,7 +191,7 @@ async def shot(self_id: int, user_id: int, group_id: int) -> Optional[Awaitable[
     elif user_role == "admin" and self_role != "owner":
         return None
 
-    if mode == 0:  # 踢人
+    if mode == 0 and ROULETTE_KICK_ENABLED:  # 踢人
         async def group_kick():
             kicked_users[group_id].add(user_id)
             await get_bot(str(self_id)).call_api('set_group_kick', **{

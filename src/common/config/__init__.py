@@ -13,6 +13,8 @@ except ImportError:
     from nonebot import get_driver
 
 KEY_JOINER = '.'
+# 保留踢人轮盘实现，通过总开关禁用。
+ROULETTE_KICK_ENABLED = False
 
 
 class PluginConfig(BaseModel, extra=Extra.ignore):
@@ -20,8 +22,8 @@ class PluginConfig(BaseModel, extra=Extra.ignore):
     use_rpc: bool = False
     # 远程数据库token
     rpc_token: str = ''
-    # 默认轮盘模式
-    default_roulette_mode: int = 0
+    # 默认轮盘模式（踢人轮盘已禁用，仅保留禁言模式）
+    default_roulette_mode: int = 1
     # mongodb host
     mongo_host: str = '127.0.0.1'
     # mongodb port
@@ -322,7 +324,11 @@ class GroupConfig(Config):
         :return: 0 踢人 1 禁言
         '''
         mode = self._find('roulette_mode')
-        return mode if mode != None else plugin_config.default_roulette_mode
+        mode = mode if mode is not None else plugin_config.default_roulette_mode
+        # 功能关闭时，数据库中遗留的踢人配置自动回落到禁言模式。
+        if mode == 0 and not ROULETTE_KICK_ENABLED:
+            return 1
+        return mode
 
     def set_roulette_mode(self, mode: int) -> None:
         '''
@@ -330,6 +336,8 @@ class GroupConfig(Config):
 
         :param mode: 0 踢人 1 禁言
         '''
+        if mode == 0 and not ROULETTE_KICK_ENABLED:
+            raise ValueError('踢人轮盘已禁用')
         self._update('roulette_mode', mode)
 
     def ban(self) -> None:
