@@ -69,6 +69,7 @@ class TestLLMClient(unittest.TestCase):
         self.assertEqual('总结内容', result)
         self.assertEqual('https://example.com/v1/chat/completions', session.last_request[0][0])
         self.assertEqual('Bearer key', session.last_request[1]['headers']['Authorization'])
+        self.assertIs(False, session.last_request[1]['json']['stream'])
 
     def test_missing_config(self):
         with self.assertRaises(LLMConfigError):

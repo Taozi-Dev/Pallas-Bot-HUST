@@ -47,6 +47,7 @@ class LLMClient:
             'model': self.model,
             'messages': messages,
             'temperature': temperature,
+            'stream': False,
         }
         if max_tokens is not None:
             payload['max_tokens'] = max_tokens
