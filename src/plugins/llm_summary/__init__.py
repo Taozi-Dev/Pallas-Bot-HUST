@@ -94,7 +94,6 @@ async def _(bot: Bot, event: GroupMessageEvent, state: T_State):
         intent_result = await asyncify(client.chat)(
             build_summary_intent_messages(request_text, now=event.time),
             temperature=0,
-            max_tokens=256,
         )
         summary_range = parse_summary_intent_result(
             intent_result,
@@ -162,7 +161,6 @@ async def _(bot: Bot, event: GroupMessageEvent, state: T_State):
         intent_result = await asyncify(client.chat)(
             build_skill_intent_messages(request_text, candidates),
             temperature=0,
-            max_tokens=256,
         )
     except LLMConfigError as error:
         logger.warning(f'LLM skill config error: {error}')
