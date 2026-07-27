@@ -13,6 +13,8 @@ except ImportError:
     from nonebot import get_driver
 
 KEY_JOINER = '.'
+# 保留踢人轮盘实现，通过总开关禁用。
+ROULETTE_KICK_ENABLED = False
 
 
 class PluginConfig(BaseModel, extra=Extra.ignore):
@@ -319,18 +321,22 @@ class GroupConfig(Config):
         '''
         获取轮盘模式
 
-        :return: 1 禁言
+        :return: 0 踢人 1 禁言
         '''
-        # 忽略数据库中可能遗留的踢人模式配置。
-        return 1
+        mode = self._find('roulette_mode')
+        mode = mode if mode is not None else plugin_config.default_roulette_mode
+        # 功能关闭时，数据库中遗留的踢人配置自动回落到禁言模式。
+        if mode == 0 and not ROULETTE_KICK_ENABLED:
+            return 1
+        return mode
 
     def set_roulette_mode(self, mode: int) -> None:
         '''
         设置轮盘模式
 
-        :param mode: 仅支持 1（禁言）
+        :param mode: 0 踢人 1 禁言
         '''
-        if mode != 1:
+        if mode == 0 and not ROULETTE_KICK_ENABLED:
             raise ValueError('踢人轮盘已禁用')
         self._update('roulette_mode', mode)
 
