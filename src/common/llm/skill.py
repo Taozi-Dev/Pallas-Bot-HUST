@@ -59,6 +59,13 @@ def parse_skill_intent_result(content: str, candidate_user_ids: Iterable[int]) -
     return target_user_id if target_user_id in candidate_set else None
 
 
+def resolve_skill_target(content: str, candidate_user_ids: Iterable[int]) -> Optional[int]:
+    candidates = list(dict.fromkeys(int(user_id) for user_id in candidate_user_ids))
+    if len(candidates) == 1:
+        return candidates[0]
+    return parse_skill_intent_result(content, candidates)
+
+
 def fetch_user_skill_records(
         collection,
         group_id: int,

@@ -19,7 +19,7 @@ from src.common.llm.skill import (
     fetch_user_skill_records,
     format_skill_records,
     has_skill_generation_keywords,
-    parse_skill_intent_result,
+    resolve_skill_target,
 )
 from src.common.utils.markdown_image import render_markdown_to_png
 from src.plugins.repeater.model import Chat
@@ -158,20 +158,27 @@ async def _(bot: Bot, event: GroupMessageEvent, state: T_State):
 
     try:
         client = LLMClient.from_config(plugin_config)
-        intent_result = await asyncify(client.chat)(
-            build_skill_intent_messages(request_text, candidates),
-            temperature=0,
-        )
     except LLMConfigError as error:
         logger.warning(f'LLM skill config error: {error}')
         await skill_msg.finish(f'LLM 配置不完整：{error}')
-    except LLMError as error:
-        logger.warning(f'LLM skill intent failed: {error}')
-        await skill_msg.finish(f'skill 意图识别失败：{error}')
 
     candidate_user_ids = [candidate['user_id'] for candidate in candidates]
-    target_user_id = parse_skill_intent_result(intent_result, candidate_user_ids)
+    intent_result = ''
+    if len(candidate_user_ids) > 1:
+        try:
+            intent_result = await asyncify(client.chat)(
+                build_skill_intent_messages(request_text, candidates),
+                temperature=0,
+            )
+        except LLMError as error:
+            logger.warning(f'LLM skill intent failed: {error}')
+            await skill_msg.finish(f'skill 意图识别失败：{error}')
+
+    target_user_id = resolve_skill_target(intent_result, candidate_user_ids)
     if target_user_id is None:
+        logger.warning(
+            f'LLM skill target unresolved: response={intent_result!r}, '
+            f'candidates={candidate_user_ids!r}')
         await skill_msg.finish(SKILL_INTENT_FAILED_MESSAGE)
 
     target_name = _candidate_name(candidates, target_user_id)

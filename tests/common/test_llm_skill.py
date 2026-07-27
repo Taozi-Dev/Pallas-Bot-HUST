@@ -8,6 +8,7 @@ from src.common.llm.skill import (
     format_skill_records,
     has_skill_generation_keywords,
     parse_skill_intent_result,
+    resolve_skill_target,
 )
 
 
@@ -79,6 +80,21 @@ class TestSkillIntent(unittest.TestCase):
 
     def test_rejects_non_skill_intent(self):
         self.assertIsNone(parse_skill_intent_result('{"is_skill": false}', [1]))
+
+    def test_resolves_single_candidate_without_llm_result(self):
+        self.assertEqual(123, resolve_skill_target('', [123]))
+        self.assertEqual(
+            123,
+            resolve_skill_target('{"is_skill": false, "target_user_id": null}', [123]),
+        )
+
+    def test_resolves_multiple_candidates_from_llm_result(self):
+        result = resolve_skill_target(
+            '{"is_skill": true, "target_user_id": 2}',
+            [1, 2],
+        )
+
+        self.assertEqual(2, result)
 
 
 class TestSkillRecords(unittest.TestCase):
