@@ -20,8 +20,8 @@ class PluginConfig(BaseModel, extra=Extra.ignore):
     use_rpc: bool = False
     # 远程数据库token
     rpc_token: str = ''
-    # 默认轮盘模式
-    default_roulette_mode: int = 0
+    # 默认轮盘模式（踢人轮盘已禁用，仅保留禁言模式）
+    default_roulette_mode: int = 1
     # mongodb host
     mongo_host: str = '127.0.0.1'
     # mongodb port
@@ -319,17 +319,19 @@ class GroupConfig(Config):
         '''
         获取轮盘模式
 
-        :return: 0 踢人 1 禁言
+        :return: 1 禁言
         '''
-        mode = self._find('roulette_mode')
-        return mode if mode != None else plugin_config.default_roulette_mode
+        # 忽略数据库中可能遗留的踢人模式配置。
+        return 1
 
     def set_roulette_mode(self, mode: int) -> None:
         '''
         设置轮盘模式
 
-        :param mode: 0 踢人 1 禁言
+        :param mode: 仅支持 1（禁言）
         '''
+        if mode != 1:
+            raise ValueError('踢人轮盘已禁用')
         self._update('roulette_mode', mode)
 
     def ban(self) -> None:

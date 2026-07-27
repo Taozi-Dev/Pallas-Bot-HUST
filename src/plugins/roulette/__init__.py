@@ -1,11 +1,11 @@
 import asyncio
 from collections import defaultdict
 from typing import Awaitable, Optional
-from nonebot import on_message, on_request, get_bot, logger
+from nonebot import on_message, get_bot, logger
 from nonebot.typing import T_State
 from nonebot.rule import Rule
 from nonebot.adapters import Bot, Event
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, GroupRequestEvent
+from nonebot.adapters.onebot.v11 import GroupMessageEvent
 from nonebot.adapters.onebot.v11 import MessageSegment, permission, GroupMessageEvent
 from nonebot.permission import Permission
 from src.common.config import BotConfig, GroupConfig
@@ -52,18 +52,8 @@ async def participate_in_roulette(bot: Bot, event: GroupMessageEvent, state: T_S
     '''
     牛牛自己是否参与轮盘
     '''
-    if BotConfig(event.self_id, event.group_id).drunkenness() <= 0:
-        return False
-
-    if GroupConfig(event.group_id).roulette_mode() == 1:
-        # 没法禁言自己
-        return False
-
-    # 群主退不了群（除非解散），所以群主牛牛不参与游戏
-    if role_cache[event.self_id][event.group_id] == 'owner':
-        return False
-
-    return random.random() < 0.1667
+    # 踢人轮盘已禁用，禁言模式下牛牛无法成为目标。
+    return False
 
 
 async def roulette(messagae_handle, bot: Bot, event: GroupMessageEvent, state: T_State):
@@ -78,17 +68,12 @@ async def roulette(messagae_handle, bot: Bot, event: GroupMessageEvent, state: T
     else:
         roulette_player[event.group_id] = [event.user_id, ]
 
-    mode = GroupConfig(event.group_id).roulette_mode()
-    if mode == 0:
-        type_msg = '踢出群聊'
-    elif mode == 1:
-        type_msg = '禁言'
     await messagae_handle.finish(
-        f'这是一把充满荣耀与死亡的左轮手枪，六个弹槽只有一颗子弹，中弹的那个人将会被{type_msg}。勇敢的战士们啊，扣动你们的扳机吧！')
+        '这是一把充满荣耀与死亡的左轮手枪，六个弹槽只有一颗子弹，中弹的那个人将会被禁言。勇敢的战士们啊，扣动你们的扳机吧！')
 
 
 async def is_roulette_type_msg(bot: Bot, event: GroupMessageEvent, state: T_State) -> bool:
-    if event.get_plaintext().strip() in ['牛牛轮盘踢人', '牛牛轮盘禁言', '牛牛踢人轮盘', '牛牛禁言轮盘']:
+    if event.get_plaintext().strip() in ['牛牛轮盘禁言', '牛牛禁言轮盘']:
         if can_roulette_start(event.group_id):
             admin = await am_I_admin(bot, event, state)
             return admin
@@ -112,12 +97,7 @@ roulette_type_msg = on_message(
 
 @roulette_type_msg.handle()
 async def _(bot: Bot, event: GroupMessageEvent, state: T_State):
-    plaintext = event.get_plaintext().strip()
-    if '踢人' in plaintext:
-        mode = 0
-    elif '禁言' in plaintext:
-        mode = 1
-    GroupConfig(event.group_id).set_roulette_mode(mode)
+    GroupConfig(event.group_id).set_roulette_mode(1)
 
     await roulette(roulette_type_msg, bot, event, state)
 
@@ -152,29 +132,16 @@ async def is_shot_msg(bot: Bot, event: GroupMessageEvent, state: T_State) -> boo
     return False
 
 
-kicked_users = defaultdict(set)
-
 # 新增：记录每个群每个用户的禁言到期时间（时间戳）
 banned_users = defaultdict(lambda: defaultdict(int))
 
 
 async def shot(self_id: int, user_id: int, group_id: int) -> Optional[Awaitable[None]]:
-    mode = GroupConfig(group_id).roulette_mode()
     self_role = role_cache[self_id][group_id]
 
     if self_id == user_id:
-        if mode == 0:  # 踢人
-            if self_role == 'owner':  # 牛牛是群主不能退群，不然群就解散了
-                return None
-
-            async def group_leave() -> None:
-                await get_bot(str(self_id)).call_api('set_group_leave', **{
-                    'group_id': group_id
-                })
-
-            return group_leave
-        elif mode == 1:  # 牛牛没法禁言自己
-            return None
+        # 牛牛没法禁言自己
+        return None
 
     user_info = await get_bot(str(self_id)).call_api('get_group_member_info', **{
         'user_id': user_id,
@@ -187,43 +154,32 @@ async def shot(self_id: int, user_id: int, group_id: int) -> Optional[Awaitable[
     elif user_role == "admin" and self_role != "owner":
         return None
 
-    if mode == 0:  # 踢人
-        async def group_kick():
-            kicked_users[group_id].add(user_id)
-            await get_bot(str(self_id)).call_api('set_group_kick', **{
-                'user_id': user_id,
-                'group_id': group_id
-            })
+    async def group_ban():
+        # 随机选择禁言时长（单位分钟），并按权重选取
+        ban_duration_list = [random.randint(180, 1440), random.randint(60, 180), random.randint(30, 60), random.randint(10, 30)]
+        ban_duration_min = random.choices(ban_duration_list, weights = [2, 8, 50, 40])[0]
+        ban_seconds = ban_duration_min * 60
 
-        return group_kick
+        # 计算已有本地记录的剩余禁言时间（如果已过期则清除）
+        now = int(time.time())
+        existing_expiry = banned_users[group_id].get(user_id, 0)
+        if existing_expiry <= now:
+            # 过期或不存在
+            existing_remaining = 0
+        else:
+            existing_remaining = existing_expiry - now
 
-    elif mode == 1:  # 禁言
-        async def group_ban():
-            # 随机选择禁言时长（单位分钟），并按权重选取
-            ban_duration_list = [random.randint(180, 1440), random.randint(60, 180), random.randint(30, 60), random.randint(10, 30)]
-            ban_duration_min = random.choices(ban_duration_list, weights = [2, 8, 50, 40])[0]
-            ban_seconds = ban_duration_min * 60
+        # 累加禁言时长
+        total_seconds = existing_remaining + ban_seconds
+        banned_users[group_id][user_id] = now + total_seconds
 
-            # 计算已有本地记录的剩余禁言时间（如果已过期则清除）
-            now = int(time.time())
-            existing_expiry = banned_users[group_id].get(user_id, 0)
-            if existing_expiry <= now:
-                # 过期或不存在
-                existing_remaining = 0
-            else:
-                existing_remaining = existing_expiry - now
-
-            # 累加禁言时长
-            total_seconds = existing_remaining + ban_seconds
-            banned_users[group_id][user_id] = now + total_seconds
-
-            # 向 OneBot/机器人 API 发起禁言，传入累加后的总秒数
-            await get_bot(str(self_id)).call_api('set_group_ban', **{
-                'user_id': user_id,
-                'group_id': group_id,
-                'duration': int(total_seconds)
-            })
-        return group_ban
+        # 向 OneBot/机器人 API 发起禁言，传入累加后的总秒数
+        await get_bot(str(self_id)).call_api('set_group_ban', **{
+            'user_id': user_id,
+            'group_id': group_id,
+            'duration': int(total_seconds)
+        })
+    return group_ban
 
 
 shot_msg = on_message(
@@ -312,19 +268,6 @@ async def _(bot: Bot, event: GroupMessageEvent, state: T_State):
 
             # 执行完所有禁言后再清除本地累加记录
             banned_users[event.group_id].clear()
-
-
-request_cmd = on_request(
-    priority=15,
-    block=False,
-)
-
-
-@request_cmd.handle()
-async def _(bot: Bot, event: GroupRequestEvent, state: T_State):
-    if event.sub_type == 'add' and event.user_id in kicked_users[event.group_id]:
-        kicked_users[event.group_id].remove(event.user_id)
-        await event.approve(bot)
 
 
 async def is_drink_msg(bot: Bot, event: GroupMessageEvent, state: T_State) -> bool:
