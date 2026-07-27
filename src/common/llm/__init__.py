@@ -1,4 +1,8 @@
+import logging
 from typing import Any, Dict, List, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 class LLMError(Exception):
@@ -67,24 +71,40 @@ class LLMClient:
         except _requests().RequestException as error:
             raise LLMError(f'LLM request failed: {error}') from error
 
-        if response.status_code >= 400:
-            raise LLMError(self._format_http_error(response))
-
         try:
-            data = response.json()
-        except ValueError as error:
-            raise LLMError('LLM response is not valid JSON') from error
+            if response.status_code >= 400:
+                raise LLMError(self._format_http_error(response))
 
-        choices = data.get('choices')
-        if not choices:
-            raise LLMError('LLM response has no choices')
+            try:
+                data = response.json()
+            except ValueError as error:
+                raise LLMError('LLM response is not valid JSON') from error
 
-        message = choices[0].get('message') or {}
-        content = (message.get('content') or '').strip()
-        if not content:
-            raise LLMError('LLM response content is empty')
+            choices = data.get('choices')
+            if not choices:
+                raise LLMError('LLM response has no choices')
 
-        return content
+            message = choices[0].get('message') or {}
+            content = (message.get('content') or '').strip()
+            if not content:
+                raise LLMError('LLM response content is empty')
+
+            return content
+        except Exception:
+            self._log_raw_response(response)
+            raise
+
+    @staticmethod
+    def _log_raw_response(response: Any) -> None:
+        headers = getattr(response, 'headers', {}) or {}
+        content_type = headers.get('Content-Type', '') if hasattr(headers, 'get') else ''
+        logger.error(
+            'LLM raw response on error: status=%s url=%s content_type=%s body=%r',
+            getattr(response, 'status_code', ''),
+            getattr(response, 'url', ''),
+            content_type,
+            getattr(response, 'text', ''),
+        )
 
     @staticmethod
     def _format_http_error(response: Any) -> str:
