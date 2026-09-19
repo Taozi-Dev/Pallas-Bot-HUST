@@ -1,12 +1,17 @@
 import asyncio
 from collections import defaultdict
 from typing import Awaitable, Optional
-from nonebot import on_message, on_request, get_bot, logger
+from nonebot import get_bot, logger, on_message, on_notice, on_request
 from nonebot.typing import T_State
 from nonebot.rule import Rule
-from nonebot.adapters import Bot, Event
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, GroupRequestEvent
-from nonebot.adapters.onebot.v11 import MessageSegment, permission, GroupMessageEvent
+from nonebot.adapters import Bot
+from nonebot.adapters.onebot.v11 import (
+    GroupBanNoticeEvent,
+    GroupMessageEvent,
+    GroupRequestEvent,
+    MessageSegment,
+    permission,
+)
 from nonebot.permission import Permission
 from src.common.config import BotConfig, GroupConfig, ROULETTE_KICK_ENABLED
 
@@ -158,7 +163,7 @@ async def is_shot_msg(bot: Bot, event: GroupMessageEvent, state: T_State) -> boo
 
 kicked_users = defaultdict(set)
 
-# 新增：记录每个群每个用户的禁言到期时间（时间戳）
+# 记录每个群每个用户的禁言到期时间（时间戳）
 banned_users = defaultdict(lambda: defaultdict(int))
 
 
@@ -204,7 +209,12 @@ async def shot(self_id: int, user_id: int, group_id: int) -> Optional[Awaitable[
     elif mode == 1:  # 禁言
         async def group_ban():
             # 随机选择禁言时长（单位分钟），并按权重选取
-            ban_duration_list = [random.randint(180, 1440), random.randint(60, 180), random.randint(30, 60), random.randint(10, 30)]
+            ban_duration_list = [
+                random.randint(720, 1440),
+                random.randint(180, 720),
+                random.randint(120, 180),
+                random.randint(60, 120),
+            ]
             ban_duration_min = random.choices(ban_duration_list, weights = [2, 8, 50, 40])[0]
             ban_seconds = ban_duration_min * 60
 
@@ -214,6 +224,7 @@ async def shot(self_id: int, user_id: int, group_id: int) -> Optional[Awaitable[
             if existing_expiry <= now:
                 # 过期或不存在
                 existing_remaining = 0
+                banned_users[group_id].pop(user_id, None)
             else:
                 existing_remaining = existing_expiry - now
 
@@ -228,6 +239,47 @@ async def shot(self_id: int, user_id: int, group_id: int) -> Optional[Awaitable[
                 'duration': int(total_seconds)
             })
         return group_ban
+
+
+group_ban_notice = on_notice(
+    priority=5,
+    block=False,
+)
+
+
+@group_ban_notice.handle()
+async def _(bot: Bot, event: GroupBanNoticeEvent):
+    if event.sub_type != 'lift_ban':
+        return
+
+    now = int(time.time())
+    expiry = banned_users[event.group_id].get(event.user_id, 0)
+    remaining = expiry - now
+
+    # 正常到期时只清理记录，不重新禁言。
+    if remaining <= 0:
+        banned_users[event.group_id].pop(event.user_id, None)
+        return
+
+    # 忽略机器人自己触发的解禁事件，避免 API 事件回环。
+    if event.operator_id == event.self_id:
+        return
+
+    try:
+        await bot.call_api('set_group_ban', **{
+            'user_id': event.user_id,
+            'group_id': event.group_id,
+            'duration': int(remaining)
+        })
+        logger.info(
+            f'Restored roulette ban for user {event.user_id} in group '
+            f'{event.group_id}, remaining {remaining} seconds'
+        )
+    except Exception:
+        logger.exception(
+            f'Failed to restore roulette ban for user {event.user_id} '
+            f'in group {event.group_id}'
+        )
 
 
 shot_msg = on_message(
@@ -258,8 +310,6 @@ async def _(bot: Bot, event: GroupMessageEvent, state: T_State):
         if shot_msg_count == 6 and random.random() < 0.125:
             roulette_status[event.group_id] = 0
             roulette_player[event.group_id] = []
-            # 轮盘结束：清除本地累加的禁言记录
-            banned_users[event.group_id].clear()
             await roulette_msg.finish('我的手中的这把武器，找了无数工匠都难以修缮如新。不......不该如此......')
 
         elif roulette_status[event.group_id] > 0:
@@ -280,11 +330,7 @@ async def _(bot: Bot, event: GroupMessageEvent, state: T_State):
                 await roulette_msg.send(reply_msg)
                 await let_the_bullets_fly()
                 await shot_awaitable()
-                # 在执行完实际的禁言/API 调用后再清除本地累加记录
-                banned_users[event.group_id].clear()
             else:
-                # 没有执行禁言，直接结束也应清除本地记录
-                banned_users[event.group_id].clear()
                 reply_msg = '听啊，悲鸣停止了。这是幸福的和平到来前的宁静。'
                 await roulette_msg.finish(reply_msg)
 
@@ -306,16 +352,11 @@ async def _(bot: Bot, event: GroupMessageEvent, state: T_State):
                 await roulette_msg.send(reply_msg)
 
             if not shot_awaitable_list:
-                # 没有实际禁言动作，清除本地记录后返回
-                banned_users[event.group_id].clear()
                 return
 
             await let_the_bullets_fly()
             for shot_awaitable in shot_awaitable_list:
                 await shot_awaitable()
-
-            # 执行完所有禁言后再清除本地累加记录
-            banned_users[event.group_id].clear()
 
 
 request_cmd = on_request(
