@@ -24,6 +24,8 @@ jobs:
       - name: Base Build and Publish
         uses: docker/build-push-action@v5
         with:
+          provenance: false
+          sbom: false
           context: .
           file: Dockerfile
           push: true
